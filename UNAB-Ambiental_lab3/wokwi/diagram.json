@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "author": "UNAB-Ambiental",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-dht22", "id": "dht1", "top": -160, "left": 40, "attrs": {} },
+    { "type": "wokwi-potentiometer", "id": "pot1", "top": 160, "left": -180, "attrs": {} },
+    { "type": "wokwi-resistor", "id": "r1", "top": 90, "left": 320, "attrs": { "value": "220" } },
+    { "type": "wokwi-led", "id": "led1", "top": 90, "left": 360, "attrs": { "color": "red" } }
+  ],
+  "connections": [
+    [ "esp:3V3", "dht1:VCC", "red", [] ],
+    [ "esp:GND.1", "dht1:GND", "black", [] ],
+    [ "esp:D15", "dht1:SDA", "green", [] ],
+    [ "esp:3V3", "pot1:VCC", "red", [] ],
+    [ "esp:GND.1", "pot1:GND", "black", [] ],
+    [ "esp:D34", "pot1:SIG", "green", [] ],
+    [ "esp:D2", "r1:1", "green", [] ],
+    [ "r1:2", "led1:A", "green", [] ],
+    [ "led1:C", "esp:GND.1", "black", [] ]
+  ]
+}
