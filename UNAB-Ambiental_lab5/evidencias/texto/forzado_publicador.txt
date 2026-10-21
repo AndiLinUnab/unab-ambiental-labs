@@ -1,0 +1,2 @@
+publisher  | 2026-10-11T16:00:53+0000 WARNING FORZADO por 600 s: {'temperature': 38.0}
+publisher  | 2026-10-11T16:10:56+0000 INFO Fin del forzado de valores, vuelve a la señal normal.

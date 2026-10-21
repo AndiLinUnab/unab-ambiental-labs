@@ -1,0 +1,118 @@
+# UNAB-Ambiental — Laboratorio 5: plataforma propia
+# Publicador -> Mosquitto (MQTT) -> Telegraf -> InfluxDB 2 -> Grafana
+#
+# Todas las credenciales salen del archivo .env (copiar de .env.example). El .env real
+# NO se sube al repositorio.
+
+name: unab-ambiental
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Broker MQTT. Sin "ports": solo es alcanzable desde la red interna de Docker
+  # (publicador y Telegraf). Desde el host se prueba con "docker compose exec".
+  # ---------------------------------------------------------------------------
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: always
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+
+  # ---------------------------------------------------------------------------
+  # TSDB. Imagen fijada a la serie 2.x: desde abril de 2026 el tag "latest" de
+  # InfluxDB apunta a InfluxDB 3 Core, que es otro producto con otra API.
+  # El puerto 8086 solo se publica en el loopback de la VM (se accede por túnel SSH).
+  # ---------------------------------------------------------------------------
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    restart: always
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_USER:?Falta INFLUX_USER en .env}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_PASSWORD:?Falta INFLUX_PASSWORD en .env}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:?Falta INFLUX_ORG en .env}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:?Falta INFLUX_BUCKET en .env}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:?Falta INFLUX_TOKEN en .env}
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+      - ./queries:/queries:ro
+    ports:
+      - "127.0.0.1:8086:8086"
+    healthcheck:
+      test: ["CMD", "influx", "ping", "--host", "http://localhost:8086"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Puente MQTT -> InfluxDB. Se suscribe a los topics de telemetría y escribe en la TSDB.
+  # ---------------------------------------------------------------------------
+  telegraf:
+    image: telegraf:1.32
+    container_name: telegraf
+    restart: always
+    environment:
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_ORG: ${INFLUX_ORG}
+      INFLUX_BUCKET: ${INFLUX_BUCKET}
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    depends_on:
+      mosquitto:
+        condition: service_started
+      influxdb:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Grafana OSS. Solo LEE de la TSDB; no participa en la ingesta.
+  # El datasource se provisiona desde grafana/provisioning (usa las variables INFLUX_*).
+  # El puerto 3000 solo se publica en el loopback de la VM (se accede por túnel SSH).
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    container_name: grafana
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Falta GRAFANA_ADMIN_PASSWORD en .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_ORG: ${INFLUX_ORG}
+      INFLUX_BUCKET: ${INFLUX_BUCKET}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Publicador de las 3 variables (temperature, humidity, illuminance) por MQTT.
+  # Corre como contenedor para sobrevivir a reinicios de la VM durante la toma.
+  # ---------------------------------------------------------------------------
+  publisher:
+    build: ./publisher
+    image: unab-ambiental-publisher:1.0
+    container_name: publisher
+    restart: always
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      SALA: ${SALA:-aula-101}
+      INTERVAL_SECONDS: ${INTERVAL_SECONDS:-30}
+      TZ_OFFSET_HOURS: ${TZ_OFFSET_HOURS:--5}
+    depends_on:
+      - mosquitto
+
+volumes:
+  mosquitto_data:
+  influxdb_data:
+  influxdb_config:
+  grafana_data:
