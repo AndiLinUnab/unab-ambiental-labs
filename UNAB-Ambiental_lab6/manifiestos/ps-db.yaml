@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ps-db-data
+  namespace: prestashop
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ps-mariadb
+  namespace: prestashop
+  labels:
+    app: ps-mariadb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ps-mariadb
+  template:
+    metadata:
+      labels:
+        app: ps-mariadb
+        portal: prestashop
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:10.11
+          ports:
+            - containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: ps-db
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+              subPath: mysql
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ps-db-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ps-mariadb
+  namespace: prestashop
+spec:
+  type: ClusterIP
+  selector:
+    app: ps-mariadb
+  ports:
+    - port: 3306
+      targetPort: 3306

@@ -1,0 +1,128 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ps-html
+  namespace: prestashop
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 3Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prestashop
+  namespace: prestashop
+  labels:
+    app: prestashop
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: prestashop
+  template:
+    metadata:
+      labels:
+        app: prestashop
+        portal: prestashop
+    spec:
+      containers:
+        - name: prestashop
+          image: prestashop/prestashop
+          ports:
+            - containerPort: 80
+          env:
+            - name: DB_SERVER
+              value: ps-mariadb
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: ps-db
+                  key: MARIADB_DATABASE
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ps-db
+                  key: MARIADB_USER
+            - name: DB_PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: ps-db
+                  key: MARIADB_PASSWORD
+            - name: ADMIN_MAIL
+              valueFrom:
+                secretKeyRef:
+                  name: ps-admin
+                  key: ADMIN_MAIL
+            - name: ADMIN_PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: ps-admin
+                  key: ADMIN_PASSWD
+            - name: PS_INSTALL_AUTO
+              value: "1"
+            - name: PS_DOMAIN
+              value: prestashop.57-156-15-124.nip.io
+            - name: PS_ENABLE_SSL
+              value: "0"
+            - name: PS_LANGUAGE
+              value: es
+            - name: PS_COUNTRY
+              value: CO
+            - name: PS_FOLDER_ADMIN
+              value: adminlab6
+          volumeMounts:
+            - name: html
+              mountPath: /var/www/html
+              subPath: html
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          readinessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: html
+          persistentVolumeClaim:
+            claimName: ps-html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prestashop
+  namespace: prestashop
+spec:
+  type: ClusterIP
+  selector:
+    app: prestashop
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prestashop
+  namespace: prestashop
+spec:
+  ingressClassName: webapprouting.kubernetes.azure.com
+  rules:
+    - host: prestashop.57-156-15-124.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prestashop
+                port:
+                  number: 80
